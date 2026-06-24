@@ -25,6 +25,8 @@ from eval_policy import evaluate  # noqa: E402
 class Args:
     episodes: int = 50
     max_steps: int = 300
+    seed: int = 0
+    """RNG seed — both modes evaluate on the same ball spawns for a fair compare."""
     device: str = "cuda"
 
 
@@ -38,6 +40,7 @@ def main(args: Args) -> None:
             args.episodes,
             args.max_steps,
             args.device,
+            args.seed,
         )
         print(
             f"{control:>8} | {res['success_rate']:>7.0%} | {res['mean_reward']:>11.2f}"
