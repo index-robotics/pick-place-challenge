@@ -12,3 +12,4 @@ wheels/
 # Imitation-learning artifacts (generated)
 demos/
 policies/
+exp_local/
