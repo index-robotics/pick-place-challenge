@@ -91,7 +91,8 @@ uv run play Mjlab-PlaceBall-Franka-Pixels-v0 --agent random --viewer native
 A minimal, self-contained behavior-cloning pipeline is wired through both control
 modes. A deterministic **scripted expert** (`expert.py`) collects demos, a tiny
 **MLP** (`bc.py`) is trained to clone them, and the policy is rolled out and scored
-by success rate (ball in bowl). Three thin scripts, each taking `--control`:
+by success rate (ball in bowl). Three thin scripts, each taking `--control`
+(full walkthrough in [docs/imitation_learning.md](docs/imitation_learning.md)):
 
 ```bash
 # 1. collect 20 scripted demos in each control mode
