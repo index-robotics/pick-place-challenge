@@ -36,6 +36,10 @@ class Args:
     """Output dir (default: demos/<control>)."""
     max_steps: int = 450
     """Max env steps to give the expert per episode."""
+    res: int = 96
+    """Square camera resolution for the saved demo videos. Must be a multiple of 16
+    (else the mp4 encoder pads frames). Larger = costlier to decode — this is the knob
+    the dataloading-speed benchmark scales."""
     seed: int = 0
     """RNG seed for reproducible ball spawns (mujoco_warp GPU physics may still
     drift slightly — it isn't fully deterministic yet)."""
@@ -49,12 +53,17 @@ def _frames(rgb: torch.Tensor) -> torch.Tensor:
 
 
 def main(args: Args) -> None:
+    if args.res % 16 != 0:
+        raise SystemExit(
+            f"--res must be a multiple of 16 (got {args.res}); otherwise the mp4 "
+            "encoder pads frames and the decoded resolution won't match."
+        )
     out = Path(args.out or f"demos/{args.control}")
     if out.exists():
         shutil.rmtree(out)  # start clean so demo counts are exact
     out.mkdir(parents=True, exist_ok=True)
 
-    cfg = task.build_bc_env_cfg(args.control, cameras=True)
+    cfg = task.build_bc_env_cfg(args.control, cameras=True, res=args.res)
     cfg.scene.num_envs = args.num_demos
     cfg.seed = args.seed  # seeds numpy/torch/warp -> reproducible ball spawns
     cfg.episode_length_s = 1e6  # never time out; we cut each demo at its success
@@ -116,6 +125,7 @@ def main(args: Args) -> None:
                 "control": args.control,
                 "num_steps": s + 1,
                 "fps": fps,
+                "res": args.res,
                 "obs_dim": int(stacked["obs"].shape[-1]),
                 "act_dim": int(stacked["act"].shape[-1]),
             },
@@ -127,6 +137,7 @@ def main(args: Args) -> None:
         "obs_dim": int(stacked["obs"].shape[-1]),
         "act_dim": int(stacked["act"].shape[-1]),
         "fps": fps,
+        "res": args.res,
         "seed": args.seed,
         "num_saved": saved,
         "num_attempted": n,

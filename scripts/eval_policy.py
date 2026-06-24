@@ -36,7 +36,10 @@ def evaluate(
     if meta["control"] != control:
         raise SystemExit(f"Policy is '{meta['control']}', not '{control}'.")
 
-    cfg = task.build_bc_env_cfg(control)
+    obs_mode = meta.get("obs_mode", "state")
+    image = obs_mode == "image"
+    # Image policies need the cameras on at the resolution they were trained at.
+    cfg = task.build_bc_env_cfg(control, cameras=image, res=meta.get("res", 96))
     cfg.scene.num_envs = episodes
     cfg.seed = seed  # seeds numpy/torch/warp -> reproducible ball spawns
     cfg.episode_length_s = 1e6  # we stop at success or max_steps
@@ -50,7 +53,13 @@ def evaluate(
     actions = None
     for t in range(max_steps):
         if t % chunk == 0:  # predict a fresh chunk, then execute it open-loop
-            actions = bc.act(policy, stats, obs["actor"]).view(episodes, chunk, act_dim)
+            if image:
+                raw = bc.act_image(
+                    policy, stats, obs["camera"]["scene_rgb"], obs["camera"]["wrist_rgb"]
+                )
+            else:
+                raw = bc.act(policy, stats, obs["actor"])
+            actions = raw.view(episodes, chunk, act_dim)
         obs, reward, terminated, _, _ = env.step(actions[:, t % chunk])
         reward_sum += reward * (~done)
         success = success | (terminated & ~done)

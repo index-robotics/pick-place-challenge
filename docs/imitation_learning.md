@@ -104,6 +104,35 @@ uv run python scripts/compare.py --episodes 50 --device cuda
 Evaluates `policies/joint.pt` and `policies/osc.pt` on the **same** ball spawns
 (shared seed) and prints the side-by-side table.
 
+## Image-based BC (and the dataloading benchmark)
+
+The same pipeline can train a policy **from camera images** instead of low-dim state.
+Collection already renders scene + wrist RGB to mp4; image training reads those videos.
+
+```bash
+# Collect at a chosen resolution (must be a multiple of 16). Bigger = costlier to decode.
+uv run python scripts/collect_demos.py --control joint --num-demos 20 --res 128 --device cuda
+
+# Train the CNN policy from the mp4s (--obs image). Eval auto-detects the mode + res.
+uv run python scripts/train_bc.py  --demos demos/joint --obs image --epochs 300 --device cuda
+uv run python scripts/eval_policy.py --control joint --episodes 50 --device cuda
+```
+
+- `--res N` (collect) — square camera resolution, recorded in metadata so train/eval
+  match. This is the knob the dataloading benchmark scales.
+- `--obs {state,image}` (train) — `state` is the default low-dim MLP; `image` is the
+  scene+wrist CNN (`ImagePolicy`). The policy file records its mode, so `eval_policy.py`
+  / `compare.py` turn the cameras on automatically — no extra flag at eval.
+- `--num-workers N` (train) — DataLoader workers; `0` (default) keeps the loader
+  single-process.
+
+> **Naive on purpose.** The image dataset (`src/pick_place_challenge/image_dataset.py`)
+> **re-decodes an episode's entire mp4 on every sample fetch** — wildly redundant and
+> slow. That is the baseline for the actual challenge: *make dataloading fast* (cache
+> decoded clips, seek single frames, batch by episode, prefetch, a better on-disk
+> format, …) without changing what the policy sees. Don't "fix" the redundant decode in
+> the dataset itself — optimizing around it is the exercise.
+
 ## Where the outputs go
 
 ```
@@ -124,9 +153,9 @@ exp_local/<YYYY.MM.DD>/         # per-run archive (mechacarpal layout)
 ```
 
 Demos are step-aligned parquet streams plus mp4 videos (see
-`src/pick_place_challenge/episode_io.py`); training reads only `observations` +
-`actions` (the videos are for inspection). `demos/`, `policies/`, and `exp_local/`
-are git-ignored.
+`src/pick_place_challenge/episode_io.py`); state training reads `observations` +
+`actions`, while image training (`--obs image`) reads the mp4 videos + `actions`.
+`demos/`, `policies/`, and `exp_local/` are git-ignored.
 
 ## Reproducibility
 

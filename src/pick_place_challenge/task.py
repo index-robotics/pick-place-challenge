@@ -260,7 +260,10 @@ def state_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
 
 
 def build_bc_env_cfg(
-    control: str = "joint", play: bool = False, cameras: bool = False
+    control: str = "joint",
+    play: bool = False,
+    cameras: bool = False,
+    res: int = 96,
 ) -> ManagerBasedRlEnvCfg:
     """State env wired for behavior cloning under one of two control modes.
 
@@ -273,7 +276,9 @@ def build_bc_env_cfg(
     The gripper term and the rest of the MDP are identical across modes, so demos
     differ only in how the arm is commanded. Observation corruption is disabled
     for clean, reproducible demonstrations. ``cameras=True`` adds scene + wrist RGB
-    (a separate obs group, leaving the state obs unchanged) for saving demo videos.
+    (a separate obs group, leaving the state obs unchanged) for saving demo videos;
+    ``res`` is the square camera resolution (used by image-based BC + the future
+    dataloading benchmark, where larger frames cost more to decode).
     """
     cfg = state_env_cfg(play=play)
     gripper = cfg.actions["gripper"]
@@ -295,7 +300,7 @@ def build_bc_env_cfg(
         raise ValueError(f"control must be 'joint' or 'osc', got {control!r}")
 
     if cameras:
-        _add_cameras(cfg)
+        _add_cameras(cfg, res=res)
     for group in cfg.observations.values():
         group.enable_corruption = False
     return cfg
