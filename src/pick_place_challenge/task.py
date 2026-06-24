@@ -41,9 +41,13 @@ from mjlab.utils.lab_api.math import quat_apply, quat_inv
 from mjlab.utils.noise import UniformNoiseCfg as Unoise
 
 from pick_place_challenge import scene
+from pick_place_challenge.control import OscPoseActionCfg
 
 if TYPE_CHECKING:
     from mjlab.envs import ManagerBasedRlEnv
+
+# Arm joints (the 7 Panda joints) — selected for both control modes.
+_ARM_JOINTS = (r"joint[1-7]",)
 
 _ROBOT = SceneEntityCfg("robot")
 
@@ -247,6 +251,50 @@ def state_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
     if play:
         cfg.episode_length_s = int(1e9)
         cfg.observations["actor"].enable_corruption = False
+    return cfg
+
+
+# ============================================================================
+# Behavior-cloning env — same task, action space selected by control mode
+# ============================================================================
+
+
+def build_bc_env_cfg(
+    control: str = "joint", play: bool = False
+) -> ManagerBasedRlEnvCfg:
+    """State env wired for behavior cloning under one of two control modes.
+
+    ``control="joint"``: 7 joint-position targets + gripper (action dim 8). The
+        joint action is unscaled with a default-pose offset, so a recorded raw
+        action is simply ``q_target - home_q`` — a clean expert/BC round-trip.
+    ``control="osc"``: 6-D end-effector pose delta + gripper (action dim 7), via
+        :class:`~pick_place_challenge.control.OscPoseAction`.
+
+    The gripper term and the rest of the MDP are identical across modes, so demos
+    differ only in how the arm is commanded. Observation corruption is disabled
+    for clean, reproducible demonstrations.
+    """
+    cfg = state_env_cfg(play=play)
+    gripper = cfg.actions["gripper"]
+
+    if control == "joint":
+        arm = cfg.actions["joint_pos"]
+        assert isinstance(arm, JointPositionActionCfg)
+        arm.actuator_names = _ARM_JOINTS
+        arm.scale = 1.0  # raw action = q_target - home_q (use_default_offset=True)
+        cfg.actions = {"joint_pos": arm, "gripper": gripper}
+    elif control == "osc":
+        osc = OscPoseActionCfg(
+            entity_name="robot",
+            actuator_names=_ARM_JOINTS,
+            frame_name=scene.GRASP_SITE,
+        )
+        cfg.actions = {"osc": osc, "gripper": gripper}
+    else:
+        raise ValueError(f"control must be 'joint' or 'osc', got {control!r}")
+
+    for group in cfg.observations.values():
+        group.enable_corruption = False
     return cfg
 
 
