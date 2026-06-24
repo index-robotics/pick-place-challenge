@@ -142,26 +142,47 @@ on-disk size — so the storage/speed tradeoff is concrete. Backends live in
 `demos/<c>/.loader_cache/<backend>/` store (self-contained, regenerable).
 
 ```bash
-uv run python scripts/benchmark_dataloading.py --demos demos/joint                      # single-process
-uv run python scripts/benchmark_dataloading.py --demos demos/joint --num-workers 4      # + parallelism
+uv run python scripts/benchmark_dataloading.py --demos demos/joint                  # CPU, single-process
+uv run python scripts/benchmark_dataloading.py --demos demos/joint --device cuda --num-workers 4
 ```
 
-| backend | mechanism | img/s¹ | vs naive | disk |
+| backend | mechanism | disk |
+|---|---|---|
+| `naive` | re-decode the whole mp4 per sample (the baseline) | 1.0 MB |
+| `seek` | cached ffmpeg reader, seek to one frame (no transcode) | 1.0 MB |
+| `jpeg` | transcode → per-frame JPEG, one small CPU decode | 13.4 MB |
+| `memmap` | transcode → raw uint8 `.npy`, `mmap` + slice (no decode) | 61.9 MB |
+| `dali` | reads the JPEG store, decodes on **GPU** (nvJPEG via NVIDIA DALI) | 13.4 MB |
+
+**CPU, single worker** (frames to host — `dali` is GPU-only, so N/A here):
+
+| | naive | seek | jpeg | memmap |
 |---|---|---|---|---|
-| `naive` | re-decode the whole mp4 per sample | 13 | 1× | 1.0 MB |
-| `seek` | cached ffmpeg reader, seek to one frame | 23 | 1.7× | 1.0 MB |
-| `jpeg` | transcode → per-frame JPEG, one small decode | 3,162 | 236× | 13.4 MB |
-| `memmap` | transcode → raw uint8 `.npy`, `mmap` + slice (no decode) | 50,431 | 3762× | 61.9 MB |
+| img/s | 13 | 23 | 3,162 | 50,431 |
+| vs naive | 1× | 1.7× | 236× | 3762× |
 
-¹ 20 demos @ res 128, batch 64, single worker, CPU. Exact numbers vary by machine.
+Smarter *decoding* of the same mp4 (`seek`) barely helps (~1.7×) — you still pay a GOP
+decode per random access. The big wins come from a frame-addressable **on-disk format**,
+trading disk for speed: `jpeg` ≈236× at ~13× the bytes; `memmap` is decode-free, ~3762×
+at ~62× the bytes (page-cache-bounded — no whole videos in RAM).
 
-Takeaways: smarter *decoding* of the same mp4 (`seek`) barely helps (~1.7×) — you still
-pay a GOP decode per random access. The large wins come from changing the **on-disk
-format** to something frame-addressable, trading disk for speed (`jpeg` ≈236× at ~13×
-the bytes; `memmap` is decode-free, page-cache-bounded, ~3762× at ~62× the bytes).
-`--num-workers N` multiplies every row by roughly N (parallelism is orthogonal). None
-of the backends load whole videos into RAM. Natural next rungs not benchmarked here:
-seek-capable decoders (PyAV/decord/torchcodec) and GPU/NVDEC decode (DALI).
+**`--device cuda`, 4 workers** (frames landed on the GPU — the training-relevant view):
+
+| | naive | seek | jpeg | memmap | dali |
+|---|---|---|---|---|---|
+| img/s | 51 | 106 | 5,959 | 7,532 | **21,979** |
+| vs naive | 1× | 2.1× | 116× | 147× | **428×** |
+
+Once every backend must get frames *onto* the GPU, the CPU loaders bottleneck on copying
+raw uint8 over PCIe — `memmap`'s no-decode edge evaporates because it ships ~62 MB of raw
+bytes. `dali` sends tiny *compressed* JPEG bytes across and decodes on-GPU (nvJPEG), so it
+wins ~3× over the next best **at the small JPEG footprint**. `--num-workers N` scales the
+CPU rows ~linearly (orthogonal). DALI is GPU-only and optional — `uv sync --extra dali`
+to enable it (skipped automatically otherwise).
+
+¹ 20 demos @ res 128, batch 64, RTX 5090. Exact numbers vary by machine. Further rungs
+not benchmarked: DALI's NVDEC path decoding the mp4s directly, and seek-capable CPU
+decoders (PyAV/decord/torchcodec).
 
 ## Where the outputs go
 
