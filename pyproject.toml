@@ -8,11 +8,13 @@ authors = [
 ]
 requires-python = ">=3.13"
 dependencies = [
+    "imageio[ffmpeg]>=2.37.0",
     "mjlab>=1.4.0",
     "mujoco>=3.8.1",
     "numpy>=2.4.6",
     "objaverse>=0.1.7",
     "pillow>=12.2.0",
+    "pyarrow>=18.0.0",
     "robot-descriptions>=2.0.0",
     "torch>=2.12.0",
     "trimesh>=4.12.2",
@@ -49,6 +51,12 @@ extend-exclude = [".typings"]  # generated mujoco stubs
 
 [tool.deptry]
 known_first_party = ["pick_place_challenge"]
+
+[tool.deptry.per_rule_ignores]
+# warp / mujoco_warp are mjlab's GPU backend; the OSC controller uses them directly.
+DEP003 = ["warp", "mujoco_warp"]
+# compare.py imports the sibling eval_policy script (added to sys.path at runtime).
+DEP001 = ["eval_policy"]
 
 [tool.ty.environment]
 # mujoco is a pybind11 extension with no shipped stubs; generate them with

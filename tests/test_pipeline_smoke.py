@@ -8,11 +8,12 @@ breakage without a full training run.
 
 from __future__ import annotations
 
+import numpy as np
 import pytest
 import torch
 
 import pick_place_challenge.task as task  # noqa: F401  (registers tasks)
-from pick_place_challenge import bc
+from pick_place_challenge import bc, episode_io
 from pick_place_challenge.expert import ScriptedExpert
 
 _DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
@@ -69,3 +70,21 @@ def test_bc_train_and_act_tiny() -> None:
     out = bc.act(policy, stats, obs_t[:4].to(_DEVICE))
     assert out.shape == (4, act_t.shape[1])
     assert torch.isfinite(out).all()
+
+
+def test_episode_io_roundtrip(tmp_path) -> None:
+    """Parquet streams and mp4 videos written by collect_demos round-trip."""
+    ep = tmp_path / "episode_000"
+    ep.mkdir()
+    obs = np.random.rand(10, 5).astype(np.float32)
+    frames = (np.random.rand(10, 96, 96, 3) * 255).astype(np.uint8)
+    episode_io.write_stream(ep, "observations", obs)
+    episode_io.write_video(ep, "scene_camera", frames, fps=50)
+    episode_io.write_metadata(ep, {"control": "joint", "num_steps": 10})
+
+    back = episode_io.read_stream(ep, "observations")
+    assert back.shape == (10, 5) and np.allclose(back, obs)
+    vid = episode_io.read_video(ep, "scene_camera")
+    assert vid.shape[0] == 10 and vid.shape[-1] == 3
+    assert episode_io.list_episodes(tmp_path) == [ep]
+    assert episode_io.read_metadata(ep)["control"] == "joint"

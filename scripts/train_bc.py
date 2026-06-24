@@ -17,7 +17,7 @@ import numpy as np
 import torch
 import tyro
 
-from pick_place_challenge import bc
+from pick_place_challenge import bc, episode_io
 
 
 @dataclass(frozen=True)
@@ -38,16 +38,20 @@ class Args:
 def main(args: Args) -> None:
     demos = Path(args.demos)
     meta = json.loads((demos / "meta.json").read_text())
-    files = sorted(demos.glob("episode_*.npz"))
-    if not files:
+    episodes = episode_io.list_episodes(demos)
+    if not episodes:
         raise SystemExit(f"No demos found in {demos}")
 
-    episodes = [np.load(f) for f in files]
-    obs = np.concatenate([e["obs"] for e in episodes])
+    obs = np.concatenate([episode_io.read_stream(d, "observations") for d in episodes])
     # Target = the next `chunk` actions at each step (clamped per episode).
-    act = np.concatenate([bc.chunk_targets(e["action"], args.chunk) for e in episodes])
+    act = np.concatenate(
+        [
+            bc.chunk_targets(episode_io.read_stream(d, "actions"), args.chunk)
+            for d in episodes
+        ]
+    )
     print(
-        f"Loaded {len(files)} demos -> {obs.shape[0]} transitions ({meta['control']}, "
+        f"Loaded {len(episodes)} demos -> {obs.shape[0]} transitions ({meta['control']}, "
         f"chunk={args.chunk})."
     )
 

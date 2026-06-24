@@ -260,7 +260,7 @@ def state_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
 
 
 def build_bc_env_cfg(
-    control: str = "joint", play: bool = False
+    control: str = "joint", play: bool = False, cameras: bool = False
 ) -> ManagerBasedRlEnvCfg:
     """State env wired for behavior cloning under one of two control modes.
 
@@ -272,7 +272,8 @@ def build_bc_env_cfg(
 
     The gripper term and the rest of the MDP are identical across modes, so demos
     differ only in how the arm is commanded. Observation corruption is disabled
-    for clean, reproducible demonstrations.
+    for clean, reproducible demonstrations. ``cameras=True`` adds scene + wrist RGB
+    (a separate obs group, leaving the state obs unchanged) for saving demo videos.
     """
     cfg = state_env_cfg(play=play)
     gripper = cfg.actions["gripper"]
@@ -293,6 +294,8 @@ def build_bc_env_cfg(
     else:
         raise ValueError(f"control must be 'joint' or 'osc', got {control!r}")
 
+    if cameras:
+        _add_cameras(cfg)
     for group in cfg.observations.values():
         group.enable_corruption = False
     return cfg
@@ -332,18 +335,48 @@ def _look_at_quat(eye, target):
     return (w, x, y, z)
 
 
-def _camera(name, eye, target, parent_body=None):
+def _camera(name, eye, target, parent_body=None, res=84):
     return CameraSensorCfg(
         name=name,
         camera_name=None,
         parent_body=parent_body,
         pos=eye,
         quat=_look_at_quat(eye, target),
-        width=84,
-        height=84,
+        width=res,
+        height=res,
         data_types=("rgb",),
         use_shadows=False,
         use_textures=True,
+    )
+
+
+def _add_cameras(cfg: ManagerBasedRlEnvCfg, res: int = 96) -> None:
+    """Add the scene + wrist RGB cameras (and their obs group) to ``cfg`` in place.
+
+    Used by both ``pixels_env_cfg`` and BC demo collection. ``res`` is a multiple
+    of 16 so the mp4 encoder doesn't pad the saved frames.
+    """
+    cfg.scene.sensors = (
+        _camera("scene_cam", (1.05, 0.55, 0.6), (0.33, 0.02, 0.05), res=res),
+        _camera(
+            "wrist_cam",
+            (0.14, 0.0, 0.04),
+            (0.0, 0.0, 0.13),
+            f"robot/{_GRIPPER_BODY}",
+            res=res,
+        ),
+    )
+    cfg.observations["camera"] = ObservationGroupCfg(
+        terms={
+            "scene_rgb": ObservationTermCfg(
+                func=manip_mdp.camera_rgb, params={"sensor_name": "scene_cam"}
+            ),
+            "wrist_rgb": ObservationTermCfg(
+                func=manip_mdp.camera_rgb, params={"sensor_name": "wrist_cam"}
+            ),
+        },
+        enable_corruption=False,
+        concatenate_terms=False,
     )
 
 
