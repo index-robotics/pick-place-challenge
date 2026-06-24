@@ -131,6 +131,12 @@ same MLP (≈30 demos each, 32 eval episodes), a representative run:
 | `joint` | ~38% | −283 |
 | `osc` | ~25% | −123 |
 
+All three scripts take `--seed` (default `0`) to pin ball spawns, weight init, and
+shuffling, so a run is reproducible — `compare.py` evaluates both modes on the same
+spawns. (GPU mujoco_warp isn't fully deterministic yet, so the success *rate* and
+spawns repeat but the exact reward can drift a hair; CPU is tighter.) Vary `--seed`
+and average a few to get a trustworthy comparison.
+
 Numbers vary by seed, but the *shape* is the lesson: OSC's bounded end-effector
 deltas are absorbed by the Jacobian controller, so its joint trajectories stay
 feasible (far smaller joint-limit penalty), whereas open-loop joint chunks drift

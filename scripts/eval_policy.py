@@ -25,6 +25,7 @@ def evaluate(
     episodes: int = 50,
     max_steps: int = 300,
     device: str = "cuda",
+    seed: int = 0,
 ) -> dict:
     """Roll out the policy and return ``{success_rate, mean_reward, episodes}``.
 
@@ -37,6 +38,7 @@ def evaluate(
 
     cfg = task.build_bc_env_cfg(control)
     cfg.scene.num_envs = episodes
+    cfg.seed = seed  # seeds numpy/torch/warp -> reproducible ball spawns
     cfg.episode_length_s = 1e6  # we stop at success or max_steps
     env = ManagerBasedRlEnv(cfg=cfg, device=device)
 
@@ -72,6 +74,7 @@ def evaluate(
             "policy": policy_path,
             "episodes": episodes,
             "max_steps": max_steps,
+            "seed": seed,
             "device": device,
         },
     )
@@ -87,12 +90,16 @@ class Args:
     """Policy path (default: policies/<control>.pt)."""
     episodes: int = 50
     max_steps: int = 300
+    seed: int = 0
+    """RNG seed for reproducible eval ball spawns."""
     device: str = "cuda"
 
 
 def main(args: Args) -> None:
     policy = args.policy or f"policies/{args.control}.pt"
-    res = evaluate(args.control, policy, args.episodes, args.max_steps, args.device)
+    res = evaluate(
+        args.control, policy, args.episodes, args.max_steps, args.device, args.seed
+    )
     print(
         f"[{args.control}] success {res['success_rate']:.0%} "
         f"over {res['episodes']} episodes  (mean reward {res['mean_reward']:.2f})"

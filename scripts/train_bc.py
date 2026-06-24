@@ -32,10 +32,14 @@ class Args:
     lr: float = 1e-3
     chunk: int = bc.CHUNK
     """Actions predicted per inference (executed open-loop at rollout)."""
+    seed: int = 0
+    """RNG seed for reproducible weight init + minibatch shuffling."""
     device: str = "cpu"
 
 
 def main(args: Args) -> None:
+    torch.manual_seed(args.seed)  # reproducible weight init + minibatch shuffling
+    np.random.seed(args.seed)
     demos = Path(args.demos)
     meta = json.loads((demos / "meta.json").read_text())
     episodes = episode_io.list_episodes(demos)
@@ -88,6 +92,7 @@ def main(args: Args) -> None:
             "epochs": args.epochs,
             "batch": args.batch,
             "lr": args.lr,
+            "seed": args.seed,
         },
     )
 

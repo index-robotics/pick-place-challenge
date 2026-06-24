@@ -36,6 +36,9 @@ class Args:
     """Output dir (default: demos/<control>)."""
     max_steps: int = 450
     """Max env steps to give the expert per episode."""
+    seed: int = 0
+    """RNG seed for reproducible ball spawns (mujoco_warp GPU physics may still
+    drift slightly — it isn't fully deterministic yet)."""
     device: str = "cuda"
     """'cuda' or 'cpu'."""
 
@@ -53,6 +56,7 @@ def main(args: Args) -> None:
 
     cfg = task.build_bc_env_cfg(args.control, cameras=True)
     cfg.scene.num_envs = args.num_demos
+    cfg.seed = args.seed  # seeds numpy/torch/warp -> reproducible ball spawns
     cfg.episode_length_s = 1e6  # never time out; we cut each demo at its success
     env = ManagerBasedRlEnv(cfg=cfg, device=args.device)
     expert = ScriptedExpert(env, args.control)
@@ -123,6 +127,7 @@ def main(args: Args) -> None:
         "obs_dim": int(stacked["obs"].shape[-1]),
         "act_dim": int(stacked["act"].shape[-1]),
         "fps": fps,
+        "seed": args.seed,
         "num_saved": saved,
         "num_attempted": n,
     }
