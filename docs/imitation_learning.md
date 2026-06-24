@@ -1,0 +1,149 @@
+# Imitation learning: joint vs OSC control
+
+This walks through the full behavior-cloning pipeline — **collect demos → train →
+eval → compare** — for the two arm control modes, and where everything lands on
+disk. A scripted expert generates the demos, a small MLP clones them, and we score
+the policy by success rate (ball placed in the bowl).
+
+The only thing that differs between the two runs is the **control mode** (how the
+arm is commanded); the task, expert plan, reward, and policy architecture are
+identical, so the comparison isolates the effect of the action space.
+
+| Mode | Arm action | Total dim |
+|---|---|---|
+| `joint` | 7 joint-position targets | 8 (+ gripper) |
+| `osc` | 6-D end-effector pose delta, tracked by a resolved-rate Jacobian controller | 7 (+ gripper) |
+
+## Prerequisites
+
+```bash
+uv sync
+```
+
+A GPU is recommended for `collect_demos` and `eval_policy` (they step the mjlab env;
+collection also renders the demo videos). Training is tiny and runs fine on CPU.
+Every script accepts `--device {cuda,cpu}`.
+
+## TL;DR — run the whole comparison
+
+```bash
+for c in joint osc; do
+  uv run python scripts/collect_demos.py --control $c --num-demos 20 --device cuda
+  uv run python scripts/train_bc.py      --demos demos/$c --epochs 300 --device cuda
+done
+uv run python scripts/compare.py --episodes 50 --device cuda
+```
+
+That prints a table like:
+
+```
+ control |  success | mean reward
+---------------------------------
+   joint |     ~55% |     ~-120
+     osc |     ~25% |     ~-140
+```
+
+(Exact numbers vary by seed and demo count — see [Reproducibility](#reproducibility)
+and [Interpreting the result](#interpreting-the-result).)
+
+## Step by step
+
+### 1. Collect demonstrations
+
+```bash
+uv run python scripts/collect_demos.py --control joint --num-demos 20 --device cuda
+uv run python scripts/collect_demos.py --control osc   --num-demos 20 --device cuda
+```
+
+Runs the scripted expert across `--num-demos` parallel envs (one demo per env, each
+with a different random ball spawn) and saves every **successful** episode. Useful
+flags:
+
+- `--control {joint,osc}` — the action space demos are recorded in.
+- `--num-demos N` — number of parallel envs (= max demos kept). Yield is ~80–95%,
+  so ~20 envs gives ~16–19 demos; raise it for more.
+- `--max-steps 450` — per-episode step budget for the expert.
+- `--out demos/<control>` — output dir (cleared first so counts are exact).
+- `--seed 0`, `--device cuda`.
+
+### 2. Train the BC policy
+
+```bash
+uv run python scripts/train_bc.py --demos demos/joint --epochs 300 --device cuda
+uv run python scripts/train_bc.py --demos demos/osc   --epochs 300 --device cuda
+```
+
+Loads the demos, trains the small MLP with **action chunking** (predicts the next
+`--chunk` actions, default 16), and saves the policy. Useful flags:
+
+- `--demos demos/<control>` — demo directory to train on.
+- `--out policies/<control>.pt` — output checkpoint (defaults from the demo's mode).
+- `--epochs 300` (default 200), `--hidden 256`, `--batch 256`, `--lr 1e-3`.
+- `--chunk 16` — actions predicted per inference, executed open-loop at rollout.
+  Chunking is what makes the grasp work; `--chunk 1` (single-step) tends to fail.
+- `--seed 0`, `--device cpu` (training default; CPU is fine).
+
+### 3. Evaluate
+
+```bash
+uv run python scripts/eval_policy.py --control joint --episodes 50 --device cuda
+uv run python scripts/eval_policy.py --control osc   --episodes 50 --device cuda
+```
+
+Rolls the policy out over `--episodes` parallel envs and reports success rate
+(`placed_in_bowl`) and mean reward. Flags: `--policy` (default
+`policies/<control>.pt`), `--episodes 50`, `--max-steps 300`, `--seed 0`,
+`--device cuda`.
+
+### 4. Compare both modes
+
+```bash
+uv run python scripts/compare.py --episodes 50 --device cuda
+```
+
+Evaluates `policies/joint.pt` and `policies/osc.pt` on the **same** ball spawns
+(shared seed) and prints the side-by-side table.
+
+## Where the outputs go
+
+```
+demos/<control>/
+  meta.json
+  episode_000/
+    metadata.json
+    observations.parquet  actions.parquet
+    eef_states.parquet    gripper_states.parquet
+    scene_camera.mp4      wrist_camera.mp4
+  episode_001/ ...
+
+policies/<control>.pt          # "latest" checkpoint eval/compare default to
+
+exp_local/<YYYY.MM.DD>/         # per-run archive (mechacarpal layout)
+  <HHMMSS>_train_<control>/  policy.pt + config.json
+  <HHMMSS>_eval_<control>/   config.json + metrics.json
+```
+
+Demos are step-aligned parquet streams plus mp4 videos (see
+`src/pick_place_challenge/episode_io.py`); training reads only `observations` +
+`actions` (the videos are for inspection). `demos/`, `policies/`, and `exp_local/`
+are git-ignored.
+
+## Reproducibility
+
+All scripts take `--seed` (default `0`), which pins the ball spawns, weight init,
+and minibatch shuffling, so a run repeats. `compare.py` evaluates both modes on the
+same spawns. Caveat: mujoco_warp GPU physics isn't fully deterministic yet, so the
+spawns and success *rate* repeat but the exact reward can drift slightly (CPU is
+tighter). For a trustworthy comparison, sweep a few seeds and average:
+
+```bash
+for s in 0 1 2; do uv run python scripts/compare.py --episodes 50 --seed $s; done
+```
+
+## Interpreting the result
+
+`joint` often edges `osc` on raw success, but `osc` has a consistently less-negative
+reward: open-loop joint chunks drift into joint limits (the `-10`-weighted
+`joint_pos_limits` penalty), while the OSC controller keeps joint trajectories
+feasible. Comparing and explaining that trade-off — and pushing either mode higher
+(more demos, receding-horizon execution, observation history) — is the exercise.
