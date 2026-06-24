@@ -17,7 +17,7 @@ import numpy as np
 import torch
 import tyro
 
-from pick_place_challenge import bc, episode_io
+from pick_place_challenge import bc, episode_io, run_dir
 
 
 @dataclass(frozen=True)
@@ -65,22 +65,36 @@ def main(args: Args) -> None:
         device=args.device,
     )
 
-    out = Path(args.out or f"policies/{meta['control']}.pt")
-    out.parent.mkdir(parents=True, exist_ok=True)
-    bc.save(
-        str(out),
-        policy,
-        stats,
+    policy_meta = {
+        "control": meta["control"],
+        "obs_dim": meta["obs_dim"],
+        "act_dim": meta["act_dim"],
+        "chunk": args.chunk,
+        "out_dim": meta["act_dim"] * args.chunk,
+        "hidden": args.hidden,
+    }
+
+    # Archive the run (checkpoint + config) under exp_local/, and also write the
+    # flat --out path as the convenient "latest" pointer for eval/compare.
+    run = run_dir.new_run_dir(f"train_{meta['control']}")
+    bc.save(str(run / "policy.pt"), policy, stats, policy_meta)
+    run_dir.write_json(
+        run,
+        "config",
         {
-            "control": meta["control"],
-            "obs_dim": meta["obs_dim"],
-            "act_dim": meta["act_dim"],
-            "chunk": args.chunk,
-            "out_dim": meta["act_dim"] * args.chunk,
-            "hidden": args.hidden,
+            **policy_meta,
+            "demos": str(demos),
+            "num_demos": len(episodes),
+            "epochs": args.epochs,
+            "batch": args.batch,
+            "lr": args.lr,
         },
     )
-    print(f"Saved policy to {out}.")
+
+    out = Path(args.out or f"policies/{meta['control']}.pt")
+    out.parent.mkdir(parents=True, exist_ok=True)
+    bc.save(str(out), policy, stats, policy_meta)
+    print(f"Saved policy to {out} and archived run to {run}.")
 
 
 if __name__ == "__main__":

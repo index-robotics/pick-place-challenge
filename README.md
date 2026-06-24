@@ -117,6 +117,12 @@ The MLP is trained with
 **action chunking** (it predicts the next 16 actions and executes them open-loop),
 without which a single-step policy reaches the ball but never commits to the grasp.
 
+Each train/eval run is archived under `exp_local/<date>/<time>_<entry>_<control>/`
+(mechacarpal's layout): training writes `policy.pt` + `config.json`, evaluation
+writes `config.json` + `metrics.json` (success rate, mean reward, per-episode
+results). Training also drops a flat `policies/<control>.pt` as the "latest"
+pointer that eval/compare default to.
+
 The point is **how the control mode affects BC**. From the same expert plan and the
 same MLP (≈30 demos each, 32 eval episodes), a representative run:
 

@@ -16,7 +16,7 @@ import tyro
 
 import pick_place_challenge.task as task  # noqa: F401  (registers tasks)
 from mjlab.envs import ManagerBasedRlEnv
-from pick_place_challenge import bc
+from pick_place_challenge import bc, run_dir
 
 
 def evaluate(
@@ -26,7 +26,11 @@ def evaluate(
     max_steps: int = 300,
     device: str = "cuda",
 ) -> dict:
-    """Roll out the policy and return ``{success_rate, mean_reward, episodes}``."""
+    """Roll out the policy and return ``{success_rate, mean_reward, episodes}``.
+
+    Archives the result to ``exp_local/<date>/<time>_eval_<control>/`` (config +
+    metrics) so runs are saved rather than just printed.
+    """
     policy, stats, meta = bc.load(policy_path, device)
     if meta["control"] != control:
         raise SystemExit(f"Policy is '{meta['control']}', not '{control}'.")
@@ -53,11 +57,27 @@ def evaluate(
             break
 
     env.close()
-    return {
+    metrics = {
         "success_rate": float(success.float().mean()),
         "mean_reward": float(reward_sum.mean()),
+        "successes": success.cpu().tolist(),
         "episodes": episodes,
     }
+    run = run_dir.new_run_dir(f"eval_{control}")
+    run_dir.write_json(
+        run,
+        "config",
+        {
+            "control": control,
+            "policy": policy_path,
+            "episodes": episodes,
+            "max_steps": max_steps,
+            "device": device,
+        },
+    )
+    run_dir.write_json(run, "metrics", metrics)
+    metrics["run_dir"] = str(run)
+    return metrics
 
 
 @dataclass(frozen=True)
@@ -77,6 +97,7 @@ def main(args: Args) -> None:
         f"[{args.control}] success {res['success_rate']:.0%} "
         f"over {res['episodes']} episodes  (mean reward {res['mean_reward']:.2f})"
     )
+    print(f"  saved to {res['run_dir']}")
 
 
 if __name__ == "__main__":

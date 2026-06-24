@@ -13,7 +13,7 @@ import pytest
 import torch
 
 import pick_place_challenge.task as task  # noqa: F401  (registers tasks)
-from pick_place_challenge import bc, episode_io
+from pick_place_challenge import bc, episode_io, run_dir
 from pick_place_challenge.expert import ScriptedExpert
 
 _DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
@@ -88,3 +88,13 @@ def test_episode_io_roundtrip(tmp_path) -> None:
     assert vid.shape[0] == 10 and vid.shape[-1] == 3
     assert episode_io.list_episodes(tmp_path) == [ep]
     assert episode_io.read_metadata(ep)["control"] == "joint"
+
+
+def test_run_dir(tmp_path) -> None:
+    """A run directory is created and JSON configs/metrics round-trip."""
+    import json
+
+    run = run_dir.new_run_dir("eval_joint", root=str(tmp_path / "exp_local"))
+    assert run.is_dir() and run.parent.parent.name == "exp_local"
+    run_dir.write_json(run, "metrics", {"success_rate": 0.5})
+    assert json.loads((run / "metrics.json").read_text())["success_rate"] == 0.5
