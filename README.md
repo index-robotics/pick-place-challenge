@@ -107,9 +107,13 @@ uv run python scripts/eval_policy.py --control joint --policy policies/joint.pt
 uv run python scripts/compare.py        # evaluates both, prints a table
 ```
 
-Everything runs on a GPU in ~minutes (or on CPU, slower — pass `--device cpu`). The
-demos are plain `.npz` (`obs`, `action`); the policy is a single `.pt` with its
-normalization stats, control mode, and chunk size baked in. The MLP is trained with
+Everything runs on a GPU in ~minutes (or on CPU, slower — pass `--device cpu`). Each
+demo is a directory of per-stream **parquet** files (`observations`, `actions`,
+`eef_states`, `gripper_states`) plus **mp4** videos (`scene_camera`, `wrist_camera`)
+and a `metadata.json` — the mechacarpal layout, step-aligned (one row per control
+step, no timestamps). See `pick_place_challenge/episode_io.py`. The policy is a
+single `.pt` with its normalization stats, control mode, and chunk size baked in.
+The MLP is trained with
 **action chunking** (it predicts the next 16 actions and executes them open-loop),
 without which a single-step policy reaches the ball but never commits to the grasp.
 
