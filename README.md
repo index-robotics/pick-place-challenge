@@ -63,8 +63,16 @@ Same task (place the ball in the bowl), same robot, same reward — they differ
 | `Mjlab-PlaceBall-Franka-State-v0` | Low-dim **state**: joint pos/vel, end-effector→ball vector, ball→bowl vector, bowl position, last action. |
 | `Mjlab-PlaceBall-Franka-Pixels-v0` | **Pixels**: an `84×84` RGB **wrist** camera + `84×84` RGB **scene** camera, plus proprioception and the (fixed) bowl position. The ball is *not* given as state — you have to see it. |
 
-**Action** (both): 8-D — 7 arm joint-position targets + 1 gripper command
-(`-1` open … `+1` closed; the Robotiq's tendon does the rest).
+**Action** (both): the arm is driven through a **control mode** plus a 1-D gripper
+command (`-1` open … `+1` closed; the Robotiq's tendon does the rest):
+
+| Control mode | Arm action | Total |
+|---|---|---|
+| `joint` (default) | 7 arm joint-position targets | 8-D |
+| `osc` | 6-D end-effector pose delta (3 position + 3 axis-angle), tracked by a resolved-rate Jacobian controller into joint targets | 7-D |
+
+The OSC controller lives in `src/pick_place_challenge/control.py`; pick a mode with
+`--control {joint,osc}` in the imitation-learning scripts below.
 
 **Reward** (both): a simple reach-then-place shaping (reach the ball × bring it to
 the bowl). It's deliberately basic — **rip it out and write your own** if doing RL.
@@ -75,6 +83,49 @@ Switch tasks by swapping the ID, e.g.:
 ```bash
 uv run play Mjlab-PlaceBall-Franka-Pixels-v0 --agent random --viewer native
 ```
+
+---
+
+## Imitation learning: collect → train → eval
+
+A minimal, self-contained behavior-cloning pipeline is wired through both control
+modes. A deterministic **scripted expert** (`expert.py`) collects demos, a tiny
+**MLP** (`bc.py`) is trained to clone them, and the policy is rolled out and scored
+by success rate (ball in bowl). Three thin scripts, each taking `--control`:
+
+```bash
+# 1. collect 20 scripted demos in each control mode
+uv run python scripts/collect_demos.py --control joint --num-demos 20
+uv run python scripts/collect_demos.py --control osc   --num-demos 20
+
+# 2. clone them with a small MLP
+uv run python scripts/train_bc.py --demos demos/joint --out policies/joint.pt
+uv run python scripts/train_bc.py --demos demos/osc   --out policies/osc.pt
+
+# 3. evaluate, and compare the two control modes side by side
+uv run python scripts/eval_policy.py --control joint --policy policies/joint.pt
+uv run python scripts/compare.py        # evaluates both, prints a table
+```
+
+Everything runs on a GPU in ~minutes (or on CPU, slower — pass `--device cpu`). The
+demos are plain `.npz` (`obs`, `action`); the policy is a single `.pt` with its
+normalization stats, control mode, and chunk size baked in. The MLP is trained with
+**action chunking** (it predicts the next 16 actions and executes them open-loop),
+without which a single-step policy reaches the ball but never commits to the grasp.
+
+The point is **how the control mode affects BC**. From the same expert plan and the
+same MLP (≈30 demos each, 32 eval episodes), a representative run:
+
+| control | success | mean reward |
+|---|---|---|
+| `joint` | ~38% | −283 |
+| `osc` | ~25% | −123 |
+
+Numbers vary by seed, but the *shape* is the lesson: OSC's bounded end-effector
+deltas are absorbed by the Jacobian controller, so its joint trajectories stay
+feasible (far smaller joint-limit penalty), whereas open-loop joint chunks drift
+into joint limits. Comparing and explaining this trade-off — and pushing either
+mode higher (more demos, receding-horizon execution, history) — is the exercise.
 
 ---
 
@@ -132,11 +183,20 @@ Just two modules — `scene.py` (the physical world) and `task.py` (the task):
     `z=0` is the only collider.
 - **`src/pick_place_challenge/task.py`** — where the env and its single MDP are
   wired together: the reach-and-place reward / observations / success check, the
-  two env configs (`state_env_cfg`, `pixels_env_cfg`), and task registration.
+  two env configs (`state_env_cfg`, `pixels_env_cfg`), the control-mode-selecting
+  `build_bc_env_cfg`, and task registration.
+- **`src/pick_place_challenge/control.py`** — the OSC end-effector pose control
+  mode: a resolved-rate (damped-least-squares Jacobian) action term, plus the
+  shared `resolved_rate_dq` / `FrameJacobian` helpers.
+- **`src/pick_place_challenge/expert.py`** — the scripted waypoint pick-and-place
+  expert that generates demos in either control mode.
+- **`src/pick_place_challenge/bc.py`** — the tiny behavior-cloning MLP (+ train,
+  normalization, save/load).
 - `scripts/` — `view_scene.py` (pure-MuJoCo CPU viewer, no GPU needed),
-  `random_rollout.py` (a readable env-loop example to copy from), and
-  `showcase.py` (renders the README GIF — random actions, orbiting camera).
-- `tests/test_scene_smoke.py` — `uv run pytest`.
+  `random_rollout.py` (a readable env-loop example to copy from),
+  `showcase.py` (renders the README GIF), and the imitation-learning trio
+  `collect_demos.py` / `train_bc.py` / `eval_policy.py` (+ `compare.py`).
+- `tests/` — `test_scene_smoke.py` and `test_pipeline_smoke.py`; `uv run pytest`.
 
 You're free to change anything in here. Have fun.
 
