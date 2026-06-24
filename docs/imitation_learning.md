@@ -133,6 +133,36 @@ uv run python scripts/eval_policy.py --control joint --episodes 50 --device cuda
 > format, …) without changing what the policy sees. Don't "fix" the redundant decode in
 > the dataset itself — optimizing around it is the exercise.
 
+### Dataloading benchmark
+
+`scripts/benchmark_dataloading.py` feeds each loader backend through a `DataLoader`
+exactly as image training would and reports throughput (img/s), per-batch latency, and
+on-disk size — so the storage/speed tradeoff is concrete. Backends live in
+`src/pick_place_challenge/loaders.py`; `jpeg`/`memmap` transcode once into a hidden
+`demos/<c>/.loader_cache/<backend>/` store (self-contained, regenerable).
+
+```bash
+uv run python scripts/benchmark_dataloading.py --demos demos/joint                      # single-process
+uv run python scripts/benchmark_dataloading.py --demos demos/joint --num-workers 4      # + parallelism
+```
+
+| backend | mechanism | img/s¹ | vs naive | disk |
+|---|---|---|---|---|
+| `naive` | re-decode the whole mp4 per sample | 13 | 1× | 1.0 MB |
+| `seek` | cached ffmpeg reader, seek to one frame | 23 | 1.7× | 1.0 MB |
+| `jpeg` | transcode → per-frame JPEG, one small decode | 3,162 | 236× | 13.4 MB |
+| `memmap` | transcode → raw uint8 `.npy`, `mmap` + slice (no decode) | 50,431 | 3762× | 61.9 MB |
+
+¹ 20 demos @ res 128, batch 64, single worker, CPU. Exact numbers vary by machine.
+
+Takeaways: smarter *decoding* of the same mp4 (`seek`) barely helps (~1.7×) — you still
+pay a GOP decode per random access. The large wins come from changing the **on-disk
+format** to something frame-addressable, trading disk for speed (`jpeg` ≈236× at ~13×
+the bytes; `memmap` is decode-free, page-cache-bounded, ~3762× at ~62× the bytes).
+`--num-workers N` multiplies every row by roughly N (parallelism is orthogonal). None
+of the backends load whole videos into RAM. Natural next rungs not benchmarked here:
+seek-capable decoders (PyAV/decord/torchcodec) and GPU/NVDEC decode (DALI).
+
 ## Where the outputs go
 
 ```
