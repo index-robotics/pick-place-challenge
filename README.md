@@ -78,6 +78,48 @@ uv run play Mjlab-PlaceBall-Franka-Pixels-v0 --agent random --viewer native
 
 ---
 
+## Imitation learning: collect → train → eval
+
+A minimal, self-contained behavior-cloning pipeline. A deterministic **scripted
+expert** (`expert.py`) collects demos, a tiny **MLP** (`bc.py`) is trained to clone
+them, and the policy is rolled out and scored by success rate (ball in bowl). Three
+thin scripts (full walkthrough in
+[docs/imitation_learning.md](docs/imitation_learning.md)):
+
+```bash
+# 1. collect 20 scripted demos
+uv run python scripts/collect_demos.py --num-demos 20
+
+# 2. clone them with a small MLP
+uv run python scripts/train_bc.py --demos demos --out policies/bc.pt
+
+# 3. evaluate the trained policy
+uv run python scripts/eval_policy.py --policy policies/bc.pt
+```
+
+Everything runs on a GPU in ~minutes (or on CPU, slower — pass `--device cpu`). Each
+demo is a directory of per-stream **parquet** files (`observations`, `actions`,
+`eef_states`, `gripper_states`) plus **mp4** videos (`scene_camera`, `wrist_camera`)
+and a `metadata.json` — the mechacarpal layout, step-aligned (one row per control
+step, no timestamps). See `pick_place_challenge/episode_io.py`. The policy is a
+single `.pt` with its normalization stats and chunk size baked in. The MLP is
+trained with **action chunking** (it predicts the next 16 actions and executes them
+open-loop), without which a single-step policy reaches the ball but never commits to
+the grasp.
+
+Each train/eval run is archived under `exp_local/<date>/<time>_<entry>/`
+(mechacarpal's layout): training writes `policy.pt` + `config.json`, evaluation
+writes `config.json` + `metrics.json` (success rate, mean reward, per-episode
+results). Training also drops a flat `policies/bc.pt` as the "latest" pointer that
+eval defaults to.
+
+All scripts take `--seed` (default `0`) to pin ball spawns, weight init, and
+shuffling, so a run is reproducible. (GPU mujoco_warp isn't fully deterministic yet,
+so the success *rate* and spawns repeat but the exact reward can drift a hair; CPU
+is tighter.) Vary `--seed` and average a few for a trustworthy number.
+
+---
+
 ## Make something cool
 
 Open-ended. Some rabbit holes, roughly easy → hard — **you don't have to pick from this list**:
@@ -132,11 +174,19 @@ Just two modules — `scene.py` (the physical world) and `task.py` (the task):
     `z=0` is the only collider.
 - **`src/pick_place_challenge/task.py`** — where the env and its single MDP are
   wired together: the reach-and-place reward / observations / success check, the
-  two env configs (`state_env_cfg`, `pixels_env_cfg`), and task registration.
+  env configs (`state_env_cfg`, `pixels_env_cfg`, the BC-wired `build_bc_env_cfg`),
+  and task registration.
+- **`src/pick_place_challenge/expert.py`** — the scripted waypoint pick-and-place
+  expert that generates demos, and **`kinematics.py`** — the resolved-rate Jacobian
+  IK it uses to solve Cartesian waypoints to joint targets.
+- **`src/pick_place_challenge/bc.py`** — the tiny behavior-cloning MLP (+ train,
+  normalization, save/load); **`episode_io.py`** (parquet/mp4 demo storage) and
+  **`run_dir.py`** (per-run archiving) support it.
 - `scripts/` — `view_scene.py` (pure-MuJoCo CPU viewer, no GPU needed),
-  `random_rollout.py` (a readable env-loop example to copy from), and
-  `showcase.py` (renders the README GIF — random actions, orbiting camera).
-- `tests/test_scene_smoke.py` — `uv run pytest`.
+  `random_rollout.py` (a readable env-loop example to copy from),
+  `showcase.py` (renders the README GIF), and the imitation-learning trio
+  `collect_demos.py` / `train_bc.py` / `eval_policy.py`.
+- `tests/` — `test_scene_smoke.py` and `test_pipeline_smoke.py`; `uv run pytest`.
 
 You're free to change anything in here. Have fun.
 
