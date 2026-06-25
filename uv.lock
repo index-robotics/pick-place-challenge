@@ -690,6 +690,12 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/49/fa/391e437a34e55095173dca5f24070d89cbc233ff85bf1c29c93248c6588d/imageio-2.37.3-py3-none-any.whl", hash = "sha256:46f5bb8522cd421c0f5ae104d8268f569d856b29eb1a13b92829d1970f32c9f0", size = 317646, upload-time = "2026-03-09T11:31:10.771Z" },
 ]
 
+[package.optional-dependencies]
+ffmpeg = [
+    { name = "imageio-ffmpeg" },
+    { name = "psutil" },
+]
+
 [[package]]
 name = "imageio-ffmpeg"
 version = "0.6.0"
@@ -1573,11 +1579,13 @@ name = "pick-place-challenge"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
+    { name = "imageio", extra = ["ffmpeg"] },
     { name = "mjlab" },
     { name = "mujoco" },
     { name = "numpy" },
     { name = "objaverse" },
     { name = "pillow" },
+    { name = "pyarrow" },
     { name = "robot-descriptions" },
     { name = "torch" },
     { name = "trimesh" },
@@ -1596,11 +1604,13 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "imageio", extras = ["ffmpeg"], specifier = ">=2.37.0" },
     { name = "mjlab", specifier = ">=1.4.0" },
     { name = "mujoco", specifier = ">=3.8.1" },
     { name = "numpy", specifier = ">=2.4.6" },
     { name = "objaverse", specifier = ">=0.1.7" },
     { name = "pillow", specifier = ">=12.2.0" },
+    { name = "pyarrow", specifier = ">=18.0.0" },
     { name = "robot-descriptions", specifier = ">=2.0.0" },
     { name = "torch", specifier = ">=2.12.0" },
     { name = "trimesh", specifier = ">=4.12.2" },

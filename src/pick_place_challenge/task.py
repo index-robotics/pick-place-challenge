@@ -45,6 +45,9 @@ from pick_place_challenge import scene
 if TYPE_CHECKING:
     from mjlab.envs import ManagerBasedRlEnv
 
+# The 7 Panda arm joints.
+_ARM_JOINTS = (r"joint[1-7]",)
+
 _ROBOT = SceneEntityCfg("robot")
 
 
@@ -250,6 +253,37 @@ def state_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
     return cfg
 
 
+# ============================================================================
+# Behavior-cloning env — joint-position action wired for clean demonstrations
+# ============================================================================
+
+
+def build_bc_env_cfg(play: bool = False, cameras: bool = False) -> ManagerBasedRlEnvCfg:
+    """State env wired for behavior cloning: 7 joint-position targets + gripper.
+
+    The arm action is unscaled with a default-pose offset (``scale=1.0``,
+    ``use_default_offset=True``), so a recorded raw action is simply
+    ``q_target - home_q`` — a clean expert/BC round-trip (action dim 8). The gripper
+    term and the rest of the MDP are unchanged. Observation corruption is disabled
+    for clean, reproducible demonstrations. ``cameras=True`` adds scene + wrist RGB
+    (a separate obs group, leaving the state obs unchanged) for saving demo videos.
+    """
+    cfg = state_env_cfg(play=play)
+
+    arm = cfg.actions["joint_pos"]
+    assert isinstance(arm, JointPositionActionCfg)
+    arm.actuator_names = _ARM_JOINTS
+    arm.scale = 1.0  # raw action = q_target - home_q (use_default_offset=True)
+    gripper = cfg.actions["gripper"]
+    cfg.actions = {"joint_pos": arm, "gripper": gripper}
+
+    if cameras:
+        _add_cameras(cfg)
+    for group in cfg.observations.values():
+        group.enable_corruption = False
+    return cfg
+
+
 def _look_at_quat(eye, target):
     """w,x,y,z quat orienting a MuJoCo camera (looks −z, up +y) at ``target``."""
     fx, fy, fz = (t - e for e, t in zip(eye, target, strict=True))
@@ -284,18 +318,48 @@ def _look_at_quat(eye, target):
     return (w, x, y, z)
 
 
-def _camera(name, eye, target, parent_body=None):
+def _camera(name, eye, target, parent_body=None, res=84):
     return CameraSensorCfg(
         name=name,
         camera_name=None,
         parent_body=parent_body,
         pos=eye,
         quat=_look_at_quat(eye, target),
-        width=84,
-        height=84,
+        width=res,
+        height=res,
         data_types=("rgb",),
         use_shadows=False,
         use_textures=True,
+    )
+
+
+def _add_cameras(cfg: ManagerBasedRlEnvCfg, res: int = 96) -> None:
+    """Add the scene + wrist RGB cameras (and their obs group) to ``cfg`` in place.
+
+    Used by BC demo collection to save inspection videos. ``res`` is a multiple of
+    16 so the mp4 encoder doesn't pad the saved frames.
+    """
+    cfg.scene.sensors = (
+        _camera("scene_cam", (1.05, 0.55, 0.6), (0.33, 0.02, 0.05), res=res),
+        _camera(
+            "wrist_cam",
+            (0.14, 0.0, 0.04),
+            (0.0, 0.0, 0.13),
+            f"robot/{_GRIPPER_BODY}",
+            res=res,
+        ),
+    )
+    cfg.observations["camera"] = ObservationGroupCfg(
+        terms={
+            "scene_rgb": ObservationTermCfg(
+                func=manip_mdp.camera_rgb, params={"sensor_name": "scene_cam"}
+            ),
+            "wrist_rgb": ObservationTermCfg(
+                func=manip_mdp.camera_rgb, params={"sensor_name": "wrist_cam"}
+            ),
+        },
+        enable_corruption=False,
+        concatenate_terms=False,
     )
 
 

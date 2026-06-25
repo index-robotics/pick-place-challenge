@@ -8,3 +8,8 @@ wheels/
 
 # Virtual environments
 .venv
+
+# Imitation-learning artifacts (generated)
+demos/
+policies/
+exp_local/
