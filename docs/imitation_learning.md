@@ -153,8 +153,9 @@ uv run python scripts/benchmark_dataloading.py --demos demos/joint --device cuda
 | `jpeg` | transcode → per-frame JPEG, one small CPU decode | 13.4 MB |
 | `memmap` | transcode → raw uint8 `.npy`, `mmap` + slice (no decode) | 61.9 MB |
 | `dali` | reads the JPEG store, decodes on **GPU** (nvJPEG via NVIDIA DALI) | 13.4 MB |
+| `dali_video` | NVDEC-decodes one random frame straight from the mp4 on **GPU**, no transcode | 1.0 MB |
 
-**CPU, single worker** (frames to host — `dali` is GPU-only, so N/A here):
+**CPU, single worker** (frames to host — the `dali*` rows are GPU-only, so N/A here):
 
 | | naive | seek | jpeg | memmap |
 |---|---|---|---|---|
@@ -168,21 +169,33 @@ at ~62× the bytes (page-cache-bounded — no whole videos in RAM).
 
 **`--device cuda`, 4 workers** (frames landed on the GPU — the training-relevant view):
 
-| | naive | seek | jpeg | memmap | dali |
-|---|---|---|---|---|---|
-| img/s | 51 | 106 | 5,959 | 7,532 | **21,979** |
-| vs naive | 1× | 2.1× | 116× | 147× | **428×** |
+| | naive | seek | jpeg | memmap | dali | dali_video |
+|---|---|---|---|---|---|---|
+| img/s @128² | 51 | 106 | 5,959 | 7,532 | **21,979** | 335 |
+| vs naive | 1× | 2.1× | 116× | 147× | **428×** | 6.6× |
+| img/s @512² | 10 | 58 | 331 | 356 | **4,152** | 170 |
+| vs naive | 1× | 6.0× | 34× | 37× | **415×** | 17× |
 
 Once every backend must get frames *onto* the GPU, the CPU loaders bottleneck on copying
-raw uint8 over PCIe — `memmap`'s no-decode edge evaporates because it ships ~62 MB of raw
-bytes. `dali` sends tiny *compressed* JPEG bytes across and decodes on-GPU (nvJPEG), so it
-wins ~3× over the next best **at the small JPEG footprint**. `--num-workers N` scales the
-CPU rows ~linearly (orthogonal). DALI is GPU-only and optional — `uv sync --extra dali`
-to enable it (skipped automatically otherwise).
+raw uint8 over PCIe — `memmap`'s no-decode edge evaporates because it ships the raw frames
+(62 MB at 128², ~1 GB at 512²). `dali` sends tiny *compressed* JPEG bytes across and
+decodes on-GPU (nvJPEG), so it wins ~3× over the next best at 128² and **~12×** at 512²:
+its lead widens with resolution because 16× the pixels punishes raw-byte transfer but
+barely grows the compressed payload. `--num-workers N` scales the CPU rows ~linearly.
 
-¹ 20 demos @ res 128, batch 64, RTX 5090. Exact numbers vary by machine. Further rungs
-not benchmarked: DALI's NVDEC path decoding the mp4s directly, and seek-capable CPU
-decoders (PyAV/decord/torchcodec).
+**`dali_video` (NVDEC straight from the mp4) is the cautionary row.** It needs no
+transcode and keeps the tiny 1–6 MB h264 footprint, but it is *slow* (6–17× naive, far
+below `dali`/`jpeg`) because the demos are encoded with a single keyframe per ~90-frame
+clip — so NVDEC must decode ~45 frames on average to reach one random frame. GPU video
+decode shines for *sequential/clip* reads, not the shuffled per-frame access BC wants. To
+make this path fast you'd re-encode all-intra (`keyint=1`): cheap random seek at some disk
+cost — the obvious next experiment.
+
+DALI is GPU-only and optional — `uv sync --extra dali` to enable it (the `dali*` rows skip
+automatically otherwise).
+
+¹ 7 demos (n=629 transitions), batch 64, RTX 5090. Exact numbers vary by machine. Further
+rung not benchmarked: seek-capable CPU decoders (PyAV/decord/torchcodec).
 
 ## Where the outputs go
 
