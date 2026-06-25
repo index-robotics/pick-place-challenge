@@ -19,11 +19,14 @@ dependencies = [
     "tyro>=1.0.13",
 ]
 
+# Register our task package with mjlab's plugin hook. On `import mjlab`,
+# mjlab auto-imports every package under this entry-point group (see
+# mjlab/__init__.py:_import_registered_packages), so our envs are registered
+# whenever mjlab's stock `play`/`train` run — no need to shadow them.
+[project.entry-points."mjlab.tasks"]
+pick_place_challenge = "pick_place_challenge.task"
+
 [project.scripts]
-# These shadow mjlab's identically-named entry points so our tasks are
-# registered before the CLI runs. Same flags as mjlab's play/train.
-play = "pick_place_challenge.cli:play"
-train = "pick_place_challenge.cli:train"
 pick-place-envs = "pick_place_challenge.cli:list_envs"
 pick-place-fetch-assets = "pick_place_challenge.scene:fetch_all_assets"
 
