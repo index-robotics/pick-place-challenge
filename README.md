@@ -124,8 +124,6 @@ is tighter.) Vary `--seed` and average a few for a trustworthy number.
 
 Open-ended. Some rabbit holes, roughly easy → hard — **you don't have to pick from this list**:
 
-- **Scripted / classical control.** Write an IK or operational-space controller
-  and a heuristic grasp that actually picks the ball up and drops it in. (Great on CPU.)
 - **Behavior cloning.** Collect demos (teleop or your scripted policy), train a
   policy, evaluate it. Bonus: from pixels.
 - **Reinforcement learning.** `uv run train Mjlab-PlaceBall-Franka-State-v0 --env.scene.num-envs 2048`
