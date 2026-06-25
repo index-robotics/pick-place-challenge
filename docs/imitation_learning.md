@@ -24,7 +24,7 @@ Every script accepts `--device {cuda,cpu}`.
 ## TL;DR — run the whole pipeline
 
 ```bash
-uv run python scripts/collect_demos.py --num-demos 20 --device cuda
+uv run python scripts/collect_demos.py --num-demos 30 --device cuda
 uv run python scripts/train_bc.py      --epochs 300  --device cuda
 uv run python scripts/eval_policy.py   --episodes 50 --device cuda
 ```
@@ -32,7 +32,7 @@ uv run python scripts/eval_policy.py   --episodes 50 --device cuda
 That prints something like:
 
 ```
-success ~50% over 50 episodes  (mean reward ~-200)
+success ~50% over 50 episodes  (mean reward ~-20)
 ```
 
 (Exact numbers vary by seed and demo count — see [Reproducibility](#reproducibility).)
@@ -42,7 +42,7 @@ success ~50% over 50 episodes  (mean reward ~-200)
 ### 1. Collect demonstrations
 
 ```bash
-uv run python scripts/collect_demos.py --num-demos 20 --device cuda
+uv run python scripts/collect_demos.py --num-demos 30 --device cuda
 ```
 
 Runs the scripted expert across `--num-demos` parallel envs (one demo per env, each
@@ -50,7 +50,7 @@ with a different random ball spawn) and saves every **successful** episode. Usef
 flags:
 
 - `--num-demos N` — number of parallel envs (= max demos kept). Yield is ~80–95%,
-  so ~20 envs gives ~16–19 demos; raise it for more.
+  so ~30 envs gives ~26 demos; raise it for more.
 - `--max-steps 450` — per-episode step budget for the expert.
 - `--out demos` — output dir (cleared first so counts are exact).
 - `--seed 0`, `--device cuda`.
