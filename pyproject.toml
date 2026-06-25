@@ -29,12 +29,6 @@ dependencies = [
 [project.entry-points."mjlab.tasks"]
 pick_place_challenge = "pick_place_challenge.task"
 
-[project.optional-dependencies]
-# GPU JPEG/video decode for the dataloading benchmark's `dali` backend. Optional
-# (GPU-only); install with:  uv sync --extra dali  (pick the wheel matching your
-# CUDA — cuda130 here; swap to nvidia-dali-cuda120 + its index for CUDA 12).
-dali = ["nvidia-dali-cuda130>=2.1.1"]
-
 [project.scripts]
 pick-place-envs = "pick_place_challenge.cli:list_envs"
 pick-place-fetch-assets = "pick_place_challenge.scene:fetch_all_assets"
@@ -52,17 +46,6 @@ dev = [
 [build-system]
 requires = ["uv_build>=0.9.18,<0.10.0"]
 build-backend = "uv_build"
-
-# DALI ships from NVIDIA's flat wheel index, not PyPI. `explicit = true` keeps it
-# scoped to the package below, so normal resolution is unaffected.
-[[tool.uv.index]]
-name = "nvidia-dali"
-url = "https://developer.download.nvidia.com/compute/redist/nvidia-dali-cuda130/"
-format = "flat"
-explicit = true
-
-[tool.uv.sources]
-nvidia-dali-cuda130 = { index = "nvidia-dali" }
 
 [tool.ruff]
 extend-exclude = [".typings"]  # generated mujoco stubs
